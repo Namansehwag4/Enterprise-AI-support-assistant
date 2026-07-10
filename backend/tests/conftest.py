@@ -11,13 +11,25 @@ from app.main import app
 # Test database URL
 TEST_DATABASE_URL = "postgresql+asyncpg://namansehwag:@localhost:5432/enterprise_test_db"
 
+from sqlalchemy.pool import NullPool
+
 # Create test engine
-test_engine = create_async_engine(TEST_DATABASE_URL, echo=False, future=True)
+test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool, echo=False, future=True)
 TestingSessionLocal = async_sessionmaker(
     bind=test_engine,
     class_=AsyncSession,
     expire_on_commit=False
 )
+
+import app.infrastructure.db.session as session_module
+session_module.async_session = TestingSessionLocal
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 @pytest.fixture(autouse=True)
 async def setup_test_db():
@@ -27,7 +39,6 @@ async def setup_test_db():
     yield
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-    await test_engine.dispose()
 
 
 

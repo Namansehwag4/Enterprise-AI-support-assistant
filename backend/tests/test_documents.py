@@ -73,15 +73,19 @@ async def test_document_upload_and_delete_flow(client: AsyncClient):
     assert doc_data["status"] == "PROCESSING"
     doc_id = doc_data["id"]
     
-    # Since parsing runs in a background task on the FastAPI dev server, we can wait a moment,
-    # but in pytest conftest ASGITransport runs everything synchronously in the event loop,
-    # meaning the background task executes immediately before returning or we can check its DB status.
-    # Let's check status via GET /documents/{id}
-    details_response = await client.get(f"/api/v1/documents/{doc_id}", headers=headers)
-    assert details_response.status_code == 200
-    details_data = details_response.json()
-    # It should have run the background task and changed to COMPLETED
-    assert details_data["status"] == "COMPLETED"
+    # Wait for the background task to complete processing and embedding
+    import asyncio
+    completed = False
+    for _ in range(10): # try up to 10 times (1 second total)
+        details_response = await client.get(f"/api/v1/documents/{doc_id}", headers=headers)
+        assert details_response.status_code == 200
+        details_data = details_response.json()
+        if details_data["status"] == "COMPLETED":
+            completed = True
+            break
+        await asyncio.sleep(0.1)
+    assert completed, "Background document ingestion timed out"
+
     
     # 5. List documents
     list_response = await client.get("/api/v1/documents/", headers=headers)

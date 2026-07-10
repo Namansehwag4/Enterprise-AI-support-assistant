@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from app.api.v1 import auth, documents
+from app.api.v1 import auth, documents, chat
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.exceptions import (
@@ -35,6 +35,7 @@ app.add_middleware(
 # Include Routers
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 app.include_router(documents.router, prefix=f"{settings.API_V1_STR}/documents", tags=["documents"])
+app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
 
 # Domain Exception Handlers (translating domain errors to HTTP errors)
 @app.exception_handler(EntityNotFoundError)

@@ -5,10 +5,17 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, Fi
 from app.core.config import settings
 from app.domain.interfaces.repositories import IVectorRepository
 
+_qdrant_client_instance = None
+
+def get_qdrant_client() -> QdrantClient:
+    global _qdrant_client_instance
+    if _qdrant_client_instance is None:
+        _qdrant_client_instance = QdrantClient(path=settings.QDRANT_PATH)
+    return _qdrant_client_instance
+
 class VectorRepository(IVectorRepository):
     def __init__(self):
-        # We initialize QdrantClient in local mode (path-based) as per Option A
-        self.client = QdrantClient(path=settings.QDRANT_PATH)
+        self.client = get_qdrant_client()
         self._ensure_collection_exists()
 
     def _ensure_collection_exists(self) -> None:
@@ -72,14 +79,14 @@ class VectorRepository(IVectorRepository):
     async def similarity_search(
         self, query_vector: List[float], limit: int = 5
     ) -> List[dict]:
-        results = self.client.search(
+        response = self.client.query_points(
             collection_name=settings.QDRANT_COLLECTION_NAME,
-            query_vector=query_vector,
+            query=query_vector,
             limit=limit
         )
         
         search_results = []
-        for hit in results:
+        for hit in response.points:
             search_results.append({
                 "chunk_id": hit.id,
                 "score": hit.score,

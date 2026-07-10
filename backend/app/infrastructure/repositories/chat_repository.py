@@ -110,7 +110,15 @@ class ChatRepository(IChatRepository):
             
         await self.db.commit()
         await self.db.refresh(message_db)
-        return MessageResponse.model_validate(message_db)
+        # Construct manually to avoid lazy-loading the 'citations' relationship
+        # which triggers MissingGreenlet. A newly created message has no citations.
+        return MessageResponse(
+            id=message_db.id,
+            sender=message_db.sender,
+            content=message_db.content,
+            created_at=message_db.created_at,
+            citations=[]
+        )
 
     async def create_citation(
         self,

@@ -1,6 +1,9 @@
 import os
 import uuid
+import logging
 from typing import List
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks, status, HTTPException
 from app.api.dependencies import get_current_user, get_current_admin, get_db
 from app.domain.models.document import DocumentResponse
@@ -19,6 +22,34 @@ def get_document_service(
     vector_repo = VectorRepository()
     embedding_service = EmbeddingService()
     return DocumentService(doc_repo, vector_repo, embedding_service)
+
+async def run_document_ingestion(
+    doc_id: uuid.UUID,
+    storage_path: str,
+    content_type: str,
+    filename: str
+) -> None:
+    from app.infrastructure.db.session import async_session
+    from app.infrastructure.repositories.document_repository import DocumentRepository
+    from app.infrastructure.repositories.vector_repository import VectorRepository
+    from app.services.embedding_service import EmbeddingService
+    from app.services.document_service import DocumentService
+
+    bind = async_session.kw.get("bind")
+    url = bind.url if bind else "unknown"
+    logger.info(f"INGESTION DB URL: {url}")
+
+    async with async_session() as db:
+        doc_repo = DocumentRepository(db)
+        vector_repo = VectorRepository()
+        embedding_service = EmbeddingService()
+        doc_service = DocumentService(doc_repo, vector_repo, embedding_service)
+        await doc_service.parse_and_embed_document(
+            doc_id=doc_id,
+            storage_path=storage_path,
+            content_type=content_type,
+            filename=filename
+        )
 
 @router.post("/", response_model=DocumentResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_document(
@@ -67,7 +98,7 @@ async def upload_document(
     
     # Enqueue background task for parsing & embeddings
     background_tasks.add_task(
-        doc_service.parse_and_embed_document,
+        run_document_ingestion,
         doc_id=doc.id,
         storage_path=storage_path,
         content_type=file.content_type or "text/plain",
