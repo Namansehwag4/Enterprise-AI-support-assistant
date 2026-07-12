@@ -123,6 +123,12 @@ class RAGService:
         # Save citation records
         citations_response = []
         for doc_id, chunk_id, snippet, page_num in citations:
+            # Prevent ForeignKeyViolationError if vector DB has stale references to deleted PG documents
+            doc_exists = await self.doc_repo.get_by_id(doc_id)
+            if not doc_exists:
+                logger.warning(f"RAG: Skipping citation for deleted or missing document ID {doc_id}")
+                continue
+                
             cit_db = await self.chat_repo.create_citation(
                 message_id=assistant_msg_db.id,
                 document_id=doc_id,
