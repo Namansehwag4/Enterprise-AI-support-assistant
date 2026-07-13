@@ -131,12 +131,38 @@ class DocumentService:
                 logger.error("pypdf is not installed but a PDF file was uploaded.")
                 raise ValueError("PDF parser not configured on server.")
                 
-        # 2. Text / Markdown Parser
+        # 2. DOCX Parser
+        elif (
+            content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            or file_path.lower().endswith(".docx")
+        ):
+            try:
+                import docx
+                doc = docx.Document(file_path)
+                text_list = []
+                for para in doc.paragraphs:
+                    if para.text.strip():
+                        text_list.append(para.text)
+                
+                for table in doc.tables:
+                    for row in table.rows:
+                        row_text = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                        if row_text:
+                            text_list.append(" | ".join(row_text))
+                            
+                full_text = "\n".join(text_list)
+                if full_text.strip():
+                    pages.append((None, full_text))
+            except Exception as e:
+                logger.error(f"Failed to parse DOCX file: {e}")
+                raise ValueError(f"DOCX parser failed: {str(e)}")
+                
+        # 3. Text / Markdown Parser
         else:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
                 if content.strip():
-                    # Text files have no page numbers, set to None (or 1)
+                    # Text files have no page numbers, set to None
                     pages.append((None, content))
                     
         return pages
