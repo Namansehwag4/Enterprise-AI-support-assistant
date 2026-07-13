@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useAuth } from "./context/AuthContext";
 import Sidebar from "./components/Sidebar";
 import CitationViewer from "./components/CitationViewer";
-import { Send, Sparkles, Loader2, MessageSquare, AlertCircle, FileText, ArrowRight } from "lucide-react";
+import { Send, Sparkles, Loader2, MessageSquare, AlertCircle, FileText, ArrowRight, Menu } from "lucide-react";
 
 interface Citation {
   id: string;
@@ -42,6 +42,7 @@ export default function Home() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
   const [isGenerating, setIsGenerating] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
@@ -239,22 +240,72 @@ export default function Home() {
     }
   };
 
+  const parseInlineMarkdown = (text: string) => {
+    const boldParts = text.split("**");
+    return boldParts.map((bPart, bIdx) => {
+      const isBold = bIdx % 2 === 1;
+      const codeParts = bPart.split("`");
+      const parsedBPart = codeParts.map((cPart, cIdx) => {
+        const isCode = cIdx % 2 === 1;
+        if (isCode) {
+          return (
+            <code key={cIdx} className="bg-zinc-950 px-1.5 py-0.5 rounded font-mono text-xs text-teal-300 border border-zinc-800">
+              {cPart}
+            </code>
+          );
+        }
+        return cPart;
+      });
+      
+      if (isBold) {
+        return <strong key={bIdx} className="font-semibold text-zinc-100">{parsedBPart}</strong>;
+      }
+      return <span key={bIdx}>{parsedBPart}</span>;
+    });
+  };
+
+  const formatMessageContent = (content: string) => {
+    if (!content) return "";
+    const lines = content.split("\n");
+    return lines.map((line, idx) => {
+      if (line.startsWith("### ")) {
+        return <h3 key={idx} className="text-sm font-bold text-zinc-100 mt-3 mb-1">{parseInlineMarkdown(line.slice(4))}</h3>;
+      }
+      if (line.startsWith("## ")) {
+        return <h2 key={idx} className="text-md font-bold text-zinc-100 mt-4 mb-2">{parseInlineMarkdown(line.slice(3))}</h2>;
+      }
+      if (line.startsWith("# ")) {
+        return <h1 key={idx} className="text-lg font-extrabold text-zinc-100 mt-4 mb-2">{parseInlineMarkdown(line.slice(2))}</h1>;
+      }
+      if (line.startsWith("* ") || line.startsWith("- ")) {
+        return (
+          <ul key={idx} className="list-disc pl-5 my-1 text-zinc-355">
+            <li className="leading-relaxed">{parseInlineMarkdown(line.slice(2))}</li>
+          </ul>
+        );
+      }
+      return (
+        <p key={idx} className="my-1.5 leading-relaxed text-zinc-300">
+          {parseInlineMarkdown(line)}
+        </p>
+      );
+    });
+  };
+
   // Convert raw citations brackets [1], [2] to clickable nodes or format citations
   const renderMessageContent = (msg: Message) => {
     if (msg.sender === "USER") {
-      return <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>;
+      return <div className="leading-relaxed">{formatMessageContent(msg.content)}</div>;
     }
 
     const citations = msg.citations || [];
     if (citations.length === 0) {
-      return <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>;
+      return <div className="leading-relaxed">{formatMessageContent(msg.content)}</div>;
     }
 
-    // Convert text citations like [DocID:page_number] or general numbers [1] to pill links
-    // For simplicity, we can render the main body, then show a list of clickable citations at the bottom of the card
     return (
       <div className="space-y-4">
-        <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+        <div className="leading-relaxed">{formatMessageContent(msg.content)}</div>
         
         {/* Citations list footer */}
         <div className="border-t border-zinc-800/80 pt-3 mt-2">
@@ -266,7 +317,7 @@ export default function Home() {
               <button
                 key={cit.id || idx}
                 onClick={() => setActiveCitation(cit)}
-                className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-950/40 py-1 px-2.5 text-xs text-zinc-350 transition-all hover:border-teal-500/50 hover:bg-zinc-900 active:scale-[0.98]"
+                className="flex items-center gap-1.5 rounded-lg border border-zinc-850 bg-zinc-950/40 py-1 px-2.5 text-xs text-zinc-355 transition-all hover:border-teal-500/50 hover:bg-zinc-900 active:scale-[0.98]"
               >
                 <FileText className="h-3 w-3 text-teal-400" />
                 <span className="max-w-[120px] truncate">{cit.filename}</span>
@@ -293,24 +344,38 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 overflow-hidden">
-      {/* Sidebar navigation */}
-      <Sidebar
-        activeSessionId={activeSessionId}
-        onSelectSession={setActiveSessionId}
-        refreshTrigger={sidebarRefresh}
-      />
+      {/* Sidebar navigation wrapper with dynamic collapse transition */}
+      <div className={`transition-all duration-300 ease-in-out ${isSidebarOpen ? "w-80" : "w-0"} overflow-hidden flex-shrink-0 border-r border-zinc-850 bg-zinc-950`}>
+        <div className="w-80 h-full">
+          <Sidebar
+            activeSessionId={activeSessionId}
+            onSelectSession={setActiveSessionId}
+            refreshTrigger={sidebarRefresh}
+          />
+        </div>
+      </div>
 
       {/* Main chat Workspace panel */}
       <main className="flex-1 flex flex-col min-w-0 bg-zinc-950/40 relative">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-zinc-850 bg-zinc-950/40 py-4.5 px-8 shadow-sm">
-          <div>
-            <h2 className="text-md font-bold text-white">
-              {activeSessionId ? "Policy Q&A Session" : "New Support Chat"}
-            </h2>
-            <p className="text-xxs text-zinc-500 font-medium uppercase tracking-wider mt-0.5">
-              Secure Retrieval-Augmented Generation
-            </p>
+        <div className="flex items-center justify-between border-b border-zinc-850 bg-zinc-950/40 py-4 px-8 shadow-sm">
+          <div className="flex items-center gap-3">
+            {/* Sidebar toggle button */}
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-1.5 rounded-lg border border-zinc-850 bg-zinc-900/30 text-zinc-400 hover:text-zinc-200 hover:border-zinc-800 transition-all"
+              title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+            <div>
+              <h2 className="text-md font-bold text-white">
+                {activeSessionId ? "Policy Q&A Session" : "New Support Chat"}
+              </h2>
+              <p className="text-xxs text-zinc-500 font-medium uppercase tracking-wider mt-0.5">
+                Secure Retrieval-Augmented Generation
+              </p>
+            </div>
           </div>
         </div>
 
