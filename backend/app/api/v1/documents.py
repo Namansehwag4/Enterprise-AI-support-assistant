@@ -64,10 +64,10 @@ async def upload_document(
     """
     filename = file.filename
     ext = os.path.splitext(filename)[1].lower()
-    if ext not in [".pdf", ".txt", ".md"]:
+    if ext not in [".pdf", ".txt", ".md", ".docx"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported file format. Supported formats: .pdf, .txt, .md"
+            detail="Unsupported file format. Supported formats: .pdf, .txt, .md, .docx"
         )
         
     uploads_dir = "./uploads"
