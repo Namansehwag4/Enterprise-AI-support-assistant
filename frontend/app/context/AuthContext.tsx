@@ -110,7 +110,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const data = await response.json();
     const accessToken = data.access_token;
+    const refreshToken = data.refresh_token;
     localStorage.setItem("auth_token", accessToken);
+    if (refreshToken) {
+      localStorage.setItem("refresh_token", refreshToken);
+    }
     setToken(accessToken);
 
     // Fetch user details
@@ -167,14 +171,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     localStorage.removeItem("auth_token");
+    localStorage.removeItem("refresh_token");
     setToken(null);
     setUser(null);
     router.push("/login");
   };
 
-  // Helper fetch function that automatically injects JWT and handles 401 logouts
+  // Helper fetch function that automatically injects JWT and handles 401 auto-refreshes
   const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
-    const storedToken = localStorage.getItem("auth_token") || token;
+    let storedToken = localStorage.getItem("auth_token") || token;
     const headers = new Headers(options.headers || {});
     
     if (storedToken) {
@@ -182,12 +187,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const url = endpoint.startsWith("http") ? endpoint : `${API_URL}${endpoint}`;
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       ...options,
       headers,
     });
 
     if (res.status === 401) {
+      const storedRefreshToken = localStorage.getItem("refresh_token");
+      if (storedRefreshToken) {
+        try {
+          const refreshRes = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ refresh_token: storedRefreshToken }),
+          });
+
+          if (refreshRes.ok) {
+            const data = await refreshRes.json();
+            const newAccessToken = data.access_token;
+            const newRefreshToken = data.refresh_token;
+
+            localStorage.setItem("auth_token", newAccessToken);
+            if (newRefreshToken) {
+              localStorage.setItem("refresh_token", newRefreshToken);
+            }
+            setToken(newAccessToken);
+
+            // Retry original request with new access token
+            headers.set("Authorization", `Bearer ${newAccessToken}`);
+            res = await fetch(url, {
+              ...options,
+              headers,
+            });
+            return res;
+          }
+        } catch (err) {
+          console.error("Token auto-refresh failed:", err);
+        }
+      }
       logout();
     }
 
