@@ -61,6 +61,7 @@ async def test_login_and_read_me(client: AsyncClient):
     token_data = login_response.json()
     assert token_data["token_type"] == "bearer"
     assert "access_token" in token_data
+    assert "refresh_token" in token_data
 
     # Read profile `/me` with token
     headers = {"Authorization": f"Bearer {token_data['access_token']}"}
@@ -75,3 +76,56 @@ async def test_login_and_read_me(client: AsyncClient):
     bad_headers = {"Authorization": "Bearer badtoken"}
     bad_me_response = await client.get("/api/v1/auth/me", headers=bad_headers)
     assert bad_me_response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_flow(client: AsyncClient):
+    # 1. Register a test user
+    reg_response = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "testrefresh@example.com",
+            "password": "refreshpassword123",
+            "full_name": "Refresh User",
+            "role": "EMPLOYEE"
+        }
+    )
+    assert reg_response.status_code == 201
+
+    # 2. Login to get tokens
+    login_response = await client.post(
+        "/api/v1/auth/token",
+        data={
+            "username": "testrefresh@example.com",
+            "password": "refreshpassword123"
+        }
+    )
+    assert login_response.status_code == 200
+    token_data = login_response.json()
+    access_token = token_data["access_token"]
+    refresh_token = token_data["refresh_token"]
+    assert access_token is not None
+    assert refresh_token is not None
+
+    # 3. Request fresh access token using refresh token
+    refresh_response = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": refresh_token}
+    )
+    assert refresh_response.status_code == 200
+    new_token_data = refresh_response.json()
+    assert "access_token" in new_token_data
+    assert "refresh_token" in new_token_data
+
+    # 4. Use new access token to query /me
+    headers = {"Authorization": f"Bearer {new_token_data['access_token']}"}
+    me_res = await client.get("/api/v1/auth/me", headers=headers)
+    assert me_res.status_code == 200
+    assert me_res.json()["email"] == "testrefresh@example.com"
+
+    # 5. Try refresh with invalid token -> should fail with 401
+    bad_refresh_response = await client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": "badrefreshtoken"}
+    )
+    assert bad_refresh_response.status_code == 401
