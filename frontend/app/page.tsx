@@ -183,11 +183,13 @@ export default function Home() {
         buffer = lines.pop() || ""; // Keep partial line in buffer
 
         for (const line of lines) {
-          const cleanLine = line.trim();
-          if (!cleanLine) continue;
+          if (!line.trim()) continue;
 
-          if (cleanLine.startsWith("data: ")) {
-            const dataVal = cleanLine.slice(6);
+          // Strip only trailing carriage return \r if present
+          const processedLine = line.endsWith("\r") ? line.slice(0, -1) : line;
+
+          if (processedLine.startsWith("data: ")) {
+            const dataVal = processedLine.slice(6);
             
             if (dataVal.startsWith("[METADATA]")) {
               try {
@@ -264,9 +266,31 @@ export default function Home() {
     });
   };
 
-  const formatMessageContent = (content: string) => {
+  const formatMessageContent = (content: string, citations: Citation[] = []) => {
     if (!content) return "";
-    const lines = content.split("\n");
+    
+    let displayContent = content;
+    if (citations && citations.length > 0) {
+      // Create a unique mapping of document_id to citation index
+      const docMapping: { [key: string]: number } = {};
+      citations.forEach((cit) => {
+        if (!docMapping[cit.document_id]) {
+          docMapping[cit.document_id] = Object.keys(docMapping).length + 1;
+        }
+      });
+
+      // Replace each uuid:page pattern with [index]
+      Object.entries(docMapping).forEach(([docId, indexNum]) => {
+        const regex = new RegExp(`\\[\\s*${docId}\\s*:\\s*(None|\\d+)\\s*\\]`, "gi");
+        displayContent = displayContent.replace(regex, `[${indexNum}]`);
+      });
+    } else {
+      // Hides raw [uuid:page] tags during streaming to keep UI clean
+      const rawUuidRegex = /\[\s*[a-f0-9\-]{36}\s*:\s*(None|\d+)\s*\]/gi;
+      displayContent = displayContent.replace(rawUuidRegex, "");
+    }
+
+    const lines = displayContent.split("\n");
     return lines.map((line, idx) => {
       if (line.startsWith("### ")) {
         return <h3 key={idx} className="text-sm font-bold text-zinc-100 mt-3 mb-1">{parseInlineMarkdown(line.slice(4))}</h3>;
@@ -294,18 +318,18 @@ export default function Home() {
 
   // Convert raw citations brackets [1], [2] to clickable nodes or format citations
   const renderMessageContent = (msg: Message) => {
+    const citations = msg.citations || [];
     if (msg.sender === "USER") {
       return <div className="leading-relaxed">{formatMessageContent(msg.content)}</div>;
     }
 
-    const citations = msg.citations || [];
     if (citations.length === 0) {
-      return <div className="leading-relaxed">{formatMessageContent(msg.content)}</div>;
+      return <div className="leading-relaxed">{formatMessageContent(msg.content, citations)}</div>;
     }
 
     return (
       <div className="space-y-4">
-        <div className="leading-relaxed">{formatMessageContent(msg.content)}</div>
+        <div className="leading-relaxed">{formatMessageContent(msg.content, citations)}</div>
         
         {/* Citations list footer */}
         <div className="border-t border-zinc-800/80 pt-3 mt-2">
