@@ -62,18 +62,32 @@ class RAGService:
         # 2. Re-rank retrieved chunks
         reranked_chunks = await self._rerank_chunks(user_message, raw_chunks, limit=5)
         
-        # If no context found, RAG behaves in zero-context mode
-        context_str = ""
-        if reranked_chunks:
-            context_pieces = []
-            for chunk in reranked_chunks:
-                doc_id = chunk["document_id"]
-                page_num = chunk.get("metadata", {}).get("page_number")
-                content = chunk["content"]
-                context_pieces.append(
-                    f"[DocID: {doc_id}, Page: {page_num}]\n{content}"
-                )
-            context_str = "\n---\n".join(context_pieces)
+        # If no context found, short-circuit immediately to save latency and token costs
+        if not reranked_chunks:
+            fallback_text = "I cannot find the answer in the corporate documentation."
+            yield f"data: {fallback_text}\n\n"
+            
+            user_msg_db = await self.chat_repo.create_message(session_id, "USER", user_message)
+            assistant_msg_db = await self.chat_repo.create_message(session_id, "ASSISTANT", fallback_text)
+            
+            import json
+            metadata_packet = {
+                "message_id": str(assistant_msg_db.id),
+                "user_message_id": str(user_msg_db.id),
+                "citations": []
+            }
+            yield f"data: [METADATA]{json.dumps(metadata_packet)}\n\n"
+            return
+
+        context_pieces = []
+        for chunk in reranked_chunks:
+            doc_id = chunk["document_id"]
+            page_num = chunk.get("metadata", {}).get("page_number")
+            content = chunk["content"]
+            context_pieces.append(
+                f"[DocID: {doc_id}, Page: {page_num}]\n{content}"
+            )
+        context_str = "\n---\n".join(context_pieces)
 
         # 3. Call LLM (Gemini) or use offline Mock generator
         full_assistant_response = ""
@@ -236,9 +250,8 @@ User Query:
         Parses raw text citations like [uuid:page_number], converts them to clean numbering like [1],
         and returns the clean text and a list of citation db mappings.
         """
-        # Regex to find UUID:page_number matches
-        # Matches: [307ecffd-50f5-42f1-8d29-4b80c50abd45:2] or [307ecffd-50f5-42f1-8d29-4b80c50abd45:None]
-        pattern = r"\[([a-f0-9\-]{36}):(None|[0-9]+)\]"
+        # Spacing-insensitive regex to handle LLM variations (e.g. [ uuid : 2 ])
+        pattern = r"\[\s*([a-f0-9\-]{36})\s*:\s*(None|[0-9]+)\s*\]"
         matches = re.findall(pattern, response_text)
         
         citations = []
@@ -247,9 +260,9 @@ User Query:
         # Build document chunks mapping for lookup
         chunk_map = {str(c["document_id"]): c for c in chunks}
         
-        # Track unique documents seen to replace with numbering like [1], [2]
         unique_citations = {}
         citation_counter = 1
+        inserted_citations = set()
         
         for doc_id_str, page_str in matches:
             try:
@@ -258,19 +271,22 @@ User Query:
             except ValueError:
                 continue
 
-            # Resolve chunk snippet details
-            chunk = chunk_map.get(doc_id_str)
-            snippet = chunk["content"] if chunk else "No snippet available."
-            chunk_id = uuid.UUID(chunk["chunk_id"]) if chunk else uuid.uuid4()
+            citation_key = (doc_id_str, page_str)
+            if citation_key not in inserted_citations:
+                inserted_citations.add(citation_key)
+                # Resolve chunk details
+                chunk = chunk_map.get(doc_id_str)
+                snippet = chunk["content"] if chunk else "No snippet available."
+                chunk_id = uuid.UUID(chunk["chunk_id"]) if chunk else uuid.uuid4()
+                citations.append((doc_id, chunk_id, snippet, page_num))
             
-            citations.append((doc_id, chunk_id, snippet, page_num))
-            
-            # Map tag in text to user friendly numbering
-            raw_tag = f"[{doc_id_str}:{page_str}]"
-            if raw_tag not in unique_citations:
-                unique_citations[raw_tag] = f"[{citation_counter}]"
+            # Map tag in text to user friendly numbering (e.g. [1])
+            # Construct a regex that matches the exact occurrence in the text (with whatever spacing)
+            raw_tag_pattern = rf"\[\s*{doc_id_str}\s*:\s*{page_str}\s*\]"
+            if doc_id_str not in unique_citations:
+                unique_citations[doc_id_str] = f"[{citation_counter}]"
                 citation_counter += 1
                 
-            clean_text = clean_text.replace(raw_tag, unique_citations[raw_tag])
+            clean_text = re.sub(raw_tag_pattern, unique_citations[doc_id_str], clean_text)
             
         return clean_text, citations
