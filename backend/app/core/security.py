@@ -24,6 +24,13 @@ def create_access_token(subject: Any, expires_delta: Optional[timedelta] = None)
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
+def create_refresh_token(subject: Any) -> str:
+    # Refresh tokens expire after 7 days
+    expire = datetime.now(timezone.utc) + timedelta(days=7)
+    to_encode = {"exp": expire, "sub": str(subject), "type": "refresh"}
+    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return encoded_jwt
+
 def decode_access_token(token: str) -> Dict[str, Any]:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
