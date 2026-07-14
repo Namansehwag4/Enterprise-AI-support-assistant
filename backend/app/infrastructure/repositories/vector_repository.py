@@ -5,13 +5,12 @@ from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, Fi
 from app.core.config import settings
 from app.domain.interfaces.repositories import IVectorRepository
 
-_qdrant_client_instance = None
+import sys
 
 def get_qdrant_client() -> QdrantClient:
-    global _qdrant_client_instance
-    if _qdrant_client_instance is None:
-        _qdrant_client_instance = QdrantClient(path=settings.QDRANT_PATH)
-    return _qdrant_client_instance
+    if not hasattr(sys, "_qdrant_client_singleton"):
+        sys._qdrant_client_singleton = QdrantClient(path=settings.QDRANT_PATH)
+    return sys._qdrant_client_singleton
 
 class VectorRepository(IVectorRepository):
     def __init__(self):
