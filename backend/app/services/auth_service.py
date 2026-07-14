@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Optional
 from app.core.exceptions import EntityAlreadyExistsError, AuthenticationError
-from app.core.security import get_password_hash, verify_password, create_access_token
+from app.core.security import get_password_hash, verify_password, create_access_token, create_refresh_token
 from app.domain.interfaces.repositories import IUserRepository
 from app.domain.models.user import UserCreate, UserResponse, UserInDB, Token
 
@@ -36,7 +36,9 @@ class AuthService:
 
     async def create_user_token(self, user: UserInDB) -> Token:
         access_token = create_access_token(subject=user.id)
+        refresh_token = create_refresh_token(subject=user.id)
         return Token(
             access_token=access_token,
+            refresh_token=refresh_token,
             token_type="bearer"
         )
